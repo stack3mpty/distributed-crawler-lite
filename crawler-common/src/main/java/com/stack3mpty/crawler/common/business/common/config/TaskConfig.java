@@ -13,4 +13,8 @@ public class TaskConfig {
     public static long getJobExpireTime() {
         return 300000L;
     }
+
+    public static int getPollTaskMaxRepeatCount() {
+        return 1000;
+    }
 }

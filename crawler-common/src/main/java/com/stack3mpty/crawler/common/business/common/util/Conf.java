@@ -75,6 +75,53 @@ public class Conf {
         return classMap;
     }
 
+    public static ArrayList<String> getClasses(String... packageNames) {
+        ArrayList<String> classes = new ArrayList<>();
+        for (String packageName : packageNames) {
+            String packagePath = packageName.replace('.', '/');
+            URL url = Conf.class.getResource("/" + packagePath);
+            if (url == null) {
+                return classes;
+            }
+            if (url.getProtocol().equals("jar")) {
+                String path = url.getPath();
+                int i = path.lastIndexOf('!');
+                if (i >= 0) {
+                    path = path.substring(0, i);
+                }
+                try (JarFile jar = new JarFile(new File(new URL(path).toURI()))) {
+                    Enumeration<JarEntry> e = jar.entries();
+                    while (e.hasMoreElements()) {
+                        path = e.nextElement().getName();
+                        if (path.startsWith(packagePath) && path.endsWith(".class")) {
+                            classes.add(path.substring(0, path.length() - 6).replace('/', '.'));
+                        }
+                    }
+                } catch (IOException | URISyntaxException e) {
+                    throw new RuntimeException(e);
+                }
+            } else {
+                try {
+                    String root = new File(url.toURI()).getPath();
+                    root = root.substring(0, root.length() - packagePath.length());
+                    search(classes, root, packagePath);
+                } catch (URISyntaxException e) {
+                    throw new RuntimeException(e);
+                }
+            }
+        }
+        return classes;
+    }
+
+    public static List<String> getClassesByJar(String packageSuffix) {
+        Map<String, List<String>> classMap = getClassMapByJar(packageSuffix);
+        List<String> mergedList = new ArrayList<>();
+        for (Map.Entry<String, List<String>> entry : classMap.entrySet()) {
+            mergedList.addAll(entry.getValue());
+        }
+        return mergedList;
+    }
+
     private static void search(
             List<String> classes, String root,
             String path) {

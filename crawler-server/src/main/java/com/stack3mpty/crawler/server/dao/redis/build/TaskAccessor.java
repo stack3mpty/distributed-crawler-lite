@@ -3,11 +3,13 @@ package com.stack3mpty.crawler.server.dao.redis.build;
 import com.google.common.collect.Lists;
 import com.google.common.primitives.Ints;
 import com.google.common.primitives.Longs;
+import com.stack3mpty.crawler.common.business.business.taskAssembler.TaskAssembler;
 import com.stack3mpty.crawler.common.business.common.config.TaskConfig;
 import com.stack3mpty.crawler.common.business.common.model.Task;
 import com.stack3mpty.crawler.common.business.common.model.TaskTypes;
 import com.stack3mpty.crawler.common.business.common.util.GzipUtils;
 import com.stack3mpty.crawler.common.business.common.util.JsonUtils;
+import com.stack3mpty.crawler.common.business.common.util.TaskAssemblerLoadUtil;
 import com.stack3mpty.crawler.server.dao.redis.TaskJedisPools;
 import jakarta.annotation.Resource;
 import lombok.extern.slf4j.Slf4j;
@@ -15,13 +17,11 @@ import org.springframework.data.redis.core.RedisCallback;
 import org.springframework.data.redis.core.RedisTemplate;
 import org.springframework.stereotype.Service;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 @Slf4j
 @Service("taskAccessor")
@@ -116,11 +116,15 @@ public class TaskAccessor {
         return GzipUtils.compress(JsonUtils.toJson(task));
     }
 
+    private Task deserializeTask(byte[] taskData) {
+        return JsonUtils.fromJson(GzipUtils.uncompressToString(taskData), Task.class);
+    }
+
     private String getQueueKey(String typeName) {
         return "stack3mpty.queue:" + typeName;
     }
 
-    private String getTaskKey(String typeName, long buildTime) {
+    private String getTaskKey(String typeName, Long buildTime) {
         return "stack3mpty.task:" + typeName + ":" + buildTime;
     }
 
@@ -158,5 +162,59 @@ public class TaskAccessor {
 
         log.debug("Updated job {} task count to: {}", jobKey, result);
         return result;
+    }
+
+    public Task pollTask(int type, String clientCode) {
+
+        TaskAssembler assembler = TaskAssemblerLoadUtil.getAssembler(type);
+        if (assembler != null && !assembler.isAvailable(type, clientCode)) {
+            return null;
+        }
+        Task task = pollTask(type);
+        if (task != null) {
+            task = assembler == null ? task : assembler.assemble(task, clientCode);
+        }
+        return task;
+    }
+
+    private Task pollTask(int type) {
+        String typeName = TaskTypes.toString(type);
+        String queueKey = getQueueKey(typeName);
+        String taskPrefix = getTaskPrefix(typeName);
+        AtomicReference<Task> task = new AtomicReference<>(null);
+        int randomInt = new Random().nextInt() & 0x7FFFFFFF;
+        int pollTaskMaxRepeatCount = TaskConfig.getPollTaskMaxRepeatCount();
+        AtomicInteger queueEmptyCount = new AtomicInteger(0);
+        for (int i = 0; i < pollTaskMaxRepeatCount && queueEmptyCount.get() < pools.getPoolNum(); i++) {
+            int poolIndex = (randomInt + i) % pools.getPoolNum();
+            RedisTemplate<String, Object> redisTemplate = pools.getRedisTemplate(poolIndex);
+            byte[] queueData = redisTemplate.execute((RedisCallback<byte[]>) connection ->
+                    connection.listCommands().lPop(queueKey.getBytes()));
+
+            if (queueData == null || queueData.length != 12) {
+                queueEmptyCount.incrementAndGet();
+                continue;
+            }
+
+            long buildTime = Longs.fromByteArray(Arrays.copyOfRange(queueData, 0, 8));
+            int taskId = Ints.fromByteArray(Arrays.copyOfRange(queueData, 8, 12));
+
+            byte[] taskKey = (taskPrefix + buildTime).getBytes();
+            byte[] taskFieId = Ints.toByteArray(taskId);
+            byte[] taskData = redisTemplate.execute((RedisCallback<byte[]>) connection ->
+                    connection.hashCommands().hGet(taskKey, taskFieId));
+            if (taskData == null) {
+                continue;
+            }
+            task.set(deserializeTask(taskData));
+            if (task.get() != null) {
+                break;
+            }
+        }
+        return task.get();
+    }
+
+    private String getTaskPrefix(String typeName) {
+        return "stack3mpty.task:" + typeName + ":";
     }
 }

@@ -9,5 +9,6 @@ public class Task {
     private long buildTime;
     private int id;
     private int priority;
+    private TaskLevel level = TaskLevel.P0;
     private TaskDetail taskDetail;
 }

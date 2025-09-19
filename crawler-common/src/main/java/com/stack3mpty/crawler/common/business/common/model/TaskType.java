@@ -9,5 +9,5 @@ import java.lang.annotation.Target;
 @Target(ElementType.TYPE)
 public @interface TaskType {
 
-    public int value() default 0;
+    int value() default 0;
 }
