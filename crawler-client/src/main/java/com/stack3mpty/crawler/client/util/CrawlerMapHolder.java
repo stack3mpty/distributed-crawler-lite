@@ -5,16 +5,20 @@ import com.stack3mpty.crawler.common.business.common.model.TaskType;
 import com.stack3mpty.crawler.common.business.common.util.Conf;
 import com.stack3mpty.crawler.common.business.common.util.Pool;
 
+import java.lang.reflect.Constructor;
 import java.util.concurrent.ConcurrentHashMap;
 
 public class CrawlerMapHolder {
     private static final ConcurrentHashMap<Integer, Pool<Crawler, ReflectiveOperationException>> INSTANCE = new ConcurrentHashMap<>();
 
-    static {
-        initCrawlerMap(INSTANCE);
+    private CrawlerMapHolder() {/**/
     }
 
-    private static void initCrawlerMap(ConcurrentHashMap<Integer, Pool<Crawler, ReflectiveOperationException>> instance) {
+    static {
+        initCrawlerMap();
+    }
+
+    private static void initCrawlerMap() {
         for (String className : Conf
                 .getClasses("com.stack3mpty.examples.crawler")) {
             final Class<?> clazz;
@@ -30,16 +34,12 @@ public class CrawlerMapHolder {
             if (annot == null) {
                 continue;
             }
-            INSTANCE.put(Integer.valueOf(annot.value()),
-                    new Pool<Crawler, ReflectiveOperationException>() {
+            INSTANCE.put(annot.value(),
+                    new Pool<>() {
                         @Override
                         protected Crawler makeObject() throws ReflectiveOperationException {
-                            Crawler crawler = (Crawler) clazz.newInstance();
-//                            if (crawler instanceof RedialLockAware) {
-//                                ((RedialLockAware) crawler).setRedialLock(LockFactory
-//                                        .redialLock().readLock());
-//                            }
-                            return crawler;
+                            Constructor<?> constructor = clazz.getDeclaredConstructor();
+                            return (Crawler) constructor.newInstance();
                         }
 
                         @Override
@@ -61,16 +61,12 @@ public class CrawlerMapHolder {
             if (annot == null) {
                 continue;
             }
-            INSTANCE.put(Integer.valueOf(annot.value()),
-                    new Pool<Crawler, ReflectiveOperationException>() {
+            INSTANCE.put(annot.value(),
+                    new Pool<>() {
                         @Override
                         protected Crawler makeObject() throws ReflectiveOperationException {
-                            Crawler crawler = (Crawler) clazz.newInstance();
-//                            if (crawler instanceof RedialLockAware) {
-//                                ((RedialLockAware) crawler).setRedialLock(LockFactory
-//                                        .redialLock().readLock());
-//                            }
-                            return crawler;
+                            Constructor<?> constructor = clazz.getDeclaredConstructor();
+                            return (Crawler) constructor.newInstance();
                         }
 
                         @Override
@@ -78,5 +74,9 @@ public class CrawlerMapHolder {
                         }
                     });
         }
+    }
+
+    public static Pool<Crawler, ReflectiveOperationException> getCrawler(int type) {
+        return INSTANCE.get(type);
     }
 }
